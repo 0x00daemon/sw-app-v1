@@ -18,13 +18,15 @@ struct SSHTerminalView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     Text(viewModel.output)
-                        .font(.system(.body, design: .monospaced))
+                        .font(.custom("Menlo", size: 14))
+                        .foregroundColor(.green)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding()
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
                         .id("output")
                 }
+                .background(Color.black)
                 .onChange(of: viewModel.output) { _ in
-                    // Auto-scroll to bottom when output changes
                     withAnimation {
                         proxy.scrollTo("output", anchor: .bottom)
                     }
@@ -32,50 +34,40 @@ struct SSHTerminalView: View {
             }
             
             // Command Input Area
-            VStack(spacing: 0) {
-                Divider()
-                HStack {
-                    TextField("Enter command", text: $commandInput)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .autocapitalization(.none)
-                        .disableAutocorrection(true)
-                        .focused($isInputFocused)
-                        .disabled(!viewModel.isConnected)
-                        .onSubmit {
-                            sendCommand()
-                        }
-                    
-                    Button("Send") {
+            HStack(spacing: 4) {
+                Text(viewModel.prompt)
+                    .font(.custom("Menlo", size: 14))
+                    .foregroundColor(.green)
+                
+                TextField("", text: $commandInput)
+                    .font(.custom("Menlo", size: 14))
+                    .textFieldStyle(PlainTextFieldStyle())
+                    .foregroundColor(.green)
+                    .accentColor(.green)
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+                    .focused($isInputFocused)
+                    .disabled(!viewModel.isConnected)
+                    .onSubmit {
                         sendCommand()
                     }
-                    .disabled(!viewModel.isConnected || commandInput.isEmpty)
-                }
-                .padding()
-                .background(Color(.systemBackground))
+                    .onAppear {
+                        isInputFocused = true
+                    }
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.black)
         }
         .navigationTitle("SSH Terminal")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button(viewModel.isConnected ? "Disconnect" : "Connect") {
-                    Task {
-                        if viewModel.isConnected {
-                            await viewModel.disconnect()
-                        } else {
-                            await viewModel.connect(config: config)
-                        }
-                    }
-                }
-            }
-        }
+        .navigationBarTitleDisplayMode(.inline)
+        .background(Color.black)
         .onAppear {
-            // Connect automatically when view appears
             Task {
                 await viewModel.connect(config: config)
             }
         }
         .onDisappear {
-            // Disconnect when view disappears
             Task {
                 await viewModel.disconnect()
             }
@@ -83,12 +75,24 @@ struct SSHTerminalView: View {
     }
     
     private func sendCommand() {
-        guard !commandInput.isEmpty && viewModel.isConnected else { return }
+        guard !commandInput.isEmpty else { return }
         let command = commandInput
         commandInput = ""
         
         Task {
             await viewModel.sendCommand(command)
         }
+    }
+}
+
+// Preview Provider for SwiftUI Canvas
+struct SSHTerminalView_Previews: PreviewProvider {
+    static var previews: some View {
+        SSHTerminalView(config: SSHHostConfiguration(
+            hostname: "example.com",
+            username: "user",
+            password: "password",
+            port: 22
+        ))
     }
 }

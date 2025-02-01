@@ -10,13 +10,19 @@ import SwiftUI
 @MainActor
 class SSHTerminalViewModel: ObservableObject {
     private var connection = SSHConnection()
+    private var config: SSHHostConfiguration?
     @Published var output: String = ""
     @Published var isConnected: Bool = false
     @Published var isConnecting: Bool = false
+    @Published var prompt: String = "$ "
+    
+    private var commandHistory: [String] = []
+    private var historyIndex: Int = 0
     
     func connect(config: SSHHostConfiguration) async {
         guard !isConnected && !isConnecting else { return }
         
+        self.config = config
         isConnecting = true
         output += "Connecting to \(config.hostname)...\n"
         
@@ -29,7 +35,10 @@ class SSHTerminalViewModel: ObservableObject {
             )
             
             isConnected = true
-            output += "Connected to \(config.hostname)\n$ "
+            output += "Connected to \(config.hostname)\n"
+            
+            // Get initial working directory
+            await sendCommand("pwd")
         } catch {
             output += "Error: \(error.localizedDescription)\n"
         }
@@ -38,16 +47,48 @@ class SSHTerminalViewModel: ObservableObject {
     }
     
     func sendCommand(_ command: String) async {
-        guard isConnected else { return }
+        guard isConnected, let config = self.config else { return }
         
-        output += "\(command)\n"
+        // Add command to history
+        commandHistory.append(command)
+        historyIndex = commandHistory.count
         
         do {
-            let result = try await connection.executeCommand(command)
-            output += "\(result)$ "
+            if command.hasPrefix("sudo ") {
+                // Handle sudo with password
+                let sudoCommand = "echo '\(config.password)' | sudo -S \(command.dropFirst(5))"
+                let result = try await connection.executeCommand(sudoCommand)
+                let trimmedResult = result.trimmingCharacters(in: .whitespacesAndNewlines)
+                output += trimmedResult
+                if !trimmedResult.hasSuffix(prompt) {
+                    output += "\n\(prompt)"
+                }
+            } else {
+                let result = try await connection.executeCommand(command)
+                let trimmedResult = result.trimmingCharacters(in: .whitespacesAndNewlines)
+                output += trimmedResult
+                if !trimmedResult.hasSuffix(prompt) {
+                    output += "\n\(prompt)"
+                }
+            }
         } catch {
-            output += "Error executing command: \(error.localizedDescription)\n$ "
+            output += "Error executing command: \(error.localizedDescription)\n\(prompt)"
         }
+    }
+    
+    func getPreviousCommand() -> String? {
+        guard !commandHistory.isEmpty && historyIndex > 0 else { return nil }
+        historyIndex -= 1
+        return commandHistory[historyIndex]
+    }
+    
+    func getNextCommand() -> String? {
+        guard !commandHistory.isEmpty && historyIndex < commandHistory.count - 1 else {
+            historyIndex = commandHistory.count
+            return ""
+        }
+        historyIndex += 1
+        return commandHistory[historyIndex]
     }
     
     func disconnect() async {
@@ -61,5 +102,6 @@ class SSHTerminalViewModel: ObservableObject {
         }
         
         isConnected = false
+        config = nil
     }
 }

@@ -4,6 +4,7 @@
 //
 //  Created by xdaem0n on 1/31/25.
 //
+
 import Foundation
 import Citadel
 import NIOSSH
@@ -14,6 +15,7 @@ enum SSHError: LocalizedError {
     case connectionFailed(String)
     case authenticationFailed(String)
     case networkError(String)
+    case ttyError(String)
     
     var errorDescription: String? {
         switch self {
@@ -25,6 +27,8 @@ enum SSHError: LocalizedError {
             return "Authentication failed: \(reason)"
         case .networkError(let reason):
             return "Network error: \(reason)"
+        case .ttyError(let reason):
+            return "TTY Error: \(reason)"
         }
     }
 }
@@ -36,15 +40,11 @@ class SSHConnection {
         print("[SSH Debug] Starting connection to \(host):\(port) as \(username)")
         
         do {
-            // Create a more detailed authentication method
             let authMethod = SSHAuthenticationMethod.passwordBased(
                 username: username,
                 password: password
             )
             
-            print("[SSH Debug] Attempting authentication with method: password")
-            
-            // Configure client with updated settings
             client = try await SSHClient.connect(
                 host: host,
                 port: port,
@@ -54,23 +54,13 @@ class SSHConnection {
                 connectTimeout: .seconds(30)
             )
             
+            // Test connection with a simple command
+            _ = try await executeCommand("echo 'Connection established'")
+            
             print("[SSH Debug] Successfully connected and authenticated")
-            
-        } catch let error as CitadelError {
-            print("[SSH Debug] Citadel error: \(error)")
-            throw SSHError.authenticationFailed("Authentication failed - Please check your username and password")
-            
-        } catch let error as NIOSSHError {
-            print("[SSH Debug] NIOSSH error: \(error)")
-            if error.localizedDescription.contains("authentication") {
-                throw SSHError.authenticationFailed("All authentication methods failed - Please verify your credentials")
-            } else {
-                throw SSHError.connectionFailed("SSH Connection error: \(error.localizedDescription)")
-            }
-            
         } catch {
-            print("[SSH Debug] Unexpected error: \(error)")
-            throw SSHError.connectionFailed("Unexpected error: \(error.localizedDescription)")
+            print("[SSH Debug] Connection error: \(error)")
+            throw SSHError.connectionFailed(error.localizedDescription)
         }
     }
     
@@ -80,13 +70,22 @@ class SSHConnection {
         }
         
         print("[SSH Debug] Executing command: \(command)")
-        let result = try await client.executeCommand(command)
-        return String(buffer: result)
+        
+        do {
+            // Execute command
+            let result = try await client.executeCommand(command)
+            return String(buffer: result)
+        } catch {
+            print("[SSH Debug] Command execution error: \(error)")
+            throw SSHError.connectionFailed(error.localizedDescription)
+        }
     }
     
     func disconnect() async throws {
-        print("[SSH Debug] Disconnecting SSH session")
-        try await client?.close()
-        client = nil
+        if let client = client {
+            try await client.close()
+            self.client = nil
+            print("[SSH Debug] Disconnected")
+        }
     }
 }
